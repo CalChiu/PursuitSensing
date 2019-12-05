@@ -34,16 +34,21 @@ public class PrototypeWearableVer : MonoBehaviour {
     private static float recordStart; //Timestamp of starting frame for data recording for evaluation
     private int chestPosition = 0; //Chest yaw angle retrieved from gimbal IMU
 
-    public static int serialPort = 2, trackingMode = 0; //Default serial communication port and hand tracking mode (0 = single, 1 = dual)
+    public static int trackingMode = 0; //Hand tracking mode (0 = single, 1 = dual)
     public static bool enableSerial, invertAxis; //UI switches to manually enable communication with gimbal and invert Leap Motion height axis respectively
     private bool enabledSerial; //boolean to revert gimbal position when enableSerial has been invoked
     private bool trackLoss; //Tracking loss boolean to revert to base position
     private bool recording; //Recording boolean to output evaluation data
+    private bool pitchBounded, yawBounded; //If the gimbal is physically at its reorientation limit, we use the Leap's hand position directly
     private List<string[]> recData = new List<string[]>(); //Evaluation data structure
 
     public static string messageStatus, leapFPS; //Data to be displayed over the Unity3D application screen
-    public GameObject referential; //Unity3D Transform object to represent body referential
-    public float chestOffset = 0; //Offset in height between HMD and gimbal, can be set in Unity Inspector
+    
+    [SerializeField] private GameObject referential = null;
+    [SerializeField] private GameObject rightHand = null, rightPalm = null, rightCenter = null;
+    [SerializeField] private GameObject leftHand = null, leftPalm = null, leftCenter = null;
+    [SerializeField] private float chestOffset = 0; //Offset in height between HMD and gimbal, can be set in Unity Inspector
+    [SerializeField] private string serialPort = "";
 
     // ================================================================================ MATH FUNCTIONS AND TOOLS
 
@@ -118,48 +123,19 @@ public class PrototypeWearableVer : MonoBehaviour {
 	// ================================================================================ Unity3D START FUNCTION
 	void Start () {
         enableSerial = true; invertAxis = true; enabledSerial = true;
-        trackLoss = false; recording = false;
+        trackLoss = false; recording = false; pitchBounded = false; yawBounded = false;
 
         controller.FrameReady += onFrame;
         controller.SetPolicy(Controller.PolicyFlag.POLICY_OPTIMIZE_HMD);
         Application.runInBackground = true;
 
-        switch(serialPort) {
-            case 0 :
-                storm = new SerialPort("COM1", 115200);
-                break;
-            case 1 :
-                storm = new SerialPort("COM2", 115200);
-                break;
-            case 2 :
-                storm = new SerialPort("COM3", 115200);
-                break;
-            case 3 :
-                storm = new SerialPort("COM4", 115200);
-                break;
-            case 4 :
-                storm = new SerialPort("COM5", 115200);
-                break;
-            case 5 :
-                storm = new SerialPort("COM6", 115200);
-                break;
-            case 6 :
-                storm = new SerialPort("COM7", 115200);
-                break;
-            case 7 :
-                storm = new SerialPort("COM8", 115200);
-                break;
-
-            default :
-                storm = new SerialPort("COM3", 115200);
-                break;
+        try {
+            storm = new SerialPort(serialPort, 115200);
+            if (!storm.IsOpen) storm.Open();
+        } catch (Exception e) {
+            Debug.LogWarning(e);
         }
-
-        storm.DtrEnable = true;
-        storm.RtsEnable = true;
-
-		if (!storm.IsOpen) storm.Open();
-	}
+    }
 
 	// ================================================================================ Unity3D UPDATE FUNCTION
 	void Update () {
@@ -173,6 +149,10 @@ public class PrototypeWearableVer : MonoBehaviour {
         //Runtime update for torso orientation and HMD height offset
         referential.transform.position = new Vector3(transform.position.x, transform.position.y - chestOffset, transform.position.z);
         referential.transform.Rotate(new Vector3(0, -(getBodyAngle()/100)*2.5f, 0), Space.World);
+
+        //Forcing coordinate referential orientations for both hands
+        rightCenter.transform.forward = -rightCenter.transform.parent.transform.up;
+        leftCenter.transform.forward = leftCenter.transform.parent.transform.up;
 
         //User input to manually revert the gimbal
         if (Input.GetKeyDown(KeyCode.Space) && enabledSerial && storm.IsOpen) resetPosition();
@@ -212,10 +192,14 @@ public class PrototypeWearableVer : MonoBehaviour {
     // ================================================================================ RUNTIME COMMANDS
     // Sends a positioning command through the serial port, corresponding to the gimbal's default position
     public static void resetPosition() {
-        if(pitchBuffer != 0 || rollBuffer != 0 || yawBuffer != yawDelta) {
+        if(pitchBuffer != 0 || rollBuffer != 0 || yawBuffer != 0) {
             byte[] resetCommand = HexToByteArray("FA0612" + "000000000000" + crc);
-            pitchBuffer = 0; rollBuffer = 0; yawBuffer = yawDelta;
-            storm.Write(resetCommand, 0, resetCommand.Length);
+            pitchBuffer = 0; rollBuffer = 0; yawBuffer = 0;
+            if (storm.IsOpen) {
+                storm.Write(resetCommand, 0, resetCommand.Length);
+            } else {
+                Debug.LogWarning("[PrototypeWearableVer] Port " + storm.PortName + " is not open.");
+            }
         }
     }
 
@@ -330,6 +314,15 @@ public class PrototypeWearableVer : MonoBehaviour {
             Vector pos = hand.PalmPosition;
             Vector3 posBuffer = new Vector3(pos.x, pos.y, pos.z);
 
+            messageStatus = "Single hand detected";
+            if (hand.IsLeft) {
+                if (!leftHand.activeSelf) leftHand.SetActive(true);
+                if (rightHand.activeSelf) rightHand.SetActive(false);
+            } else {
+                if (!rightHand.activeSelf) rightHand.SetActive(true);
+                if (leftHand.activeSelf) leftHand.SetActive(false);
+            }
+
             float vAngle = 0;
             float hAngle = 0;
             int angleThreshold = 8; float angularSpeed = 1f;
@@ -340,7 +333,7 @@ public class PrototypeWearableVer : MonoBehaviour {
             //FOCUS SHIFT (COMMENT TO DISABLE)
             //if(palmSpeed > 500f) {
             //    pos += (hand.PalmVelocity.Normalized * shiftAmplitude);
-            //    angularSpeed = 2f;
+            //    angularSpeed = 4f;
             //}
 
             //POSITION COMPUTING
@@ -366,11 +359,12 @@ public class PrototypeWearableVer : MonoBehaviour {
             yawBuffer = Convert.ToSingle(yawBuffer + hAngle); //THETA angle in spherical
 
             //PHYSICAL LIMITS CONSTRAINTS
-            if(pitchBuffer > pitchLimit) pitchBuffer = pitchLimit;
-            else if (pitchBuffer < -pitchLimit) pitchBuffer = -pitchLimit;
+            pitchBounded = false; yawBounded = false;
+            if (pitchBuffer > pitchLimit) { pitchBuffer = pitchLimit; pitchBounded = true; }
+            else if (pitchBuffer < -pitchLimit) { pitchBuffer = -pitchLimit; pitchBounded = true; }
 
-            if(yawBuffer > yawLimit) yawBuffer = yawLimit;
-            else if (yawBuffer < -yawLimit) yawBuffer = -yawLimit;
+            if (yawBuffer > yawLimit) { yawBuffer = yawLimit; yawBounded = true; }
+            else if (yawBuffer < -yawLimit) { yawBuffer = -yawLimit; yawBounded = true; }
 
             //SPHERICAL COORDINATES CALCULATION
             Vector3 newPos;
@@ -378,8 +372,16 @@ public class PrototypeWearableVer : MonoBehaviour {
             newPos.x = (float)(-(pos.y / 1000) * Math.Cos(-pitchBuffer * Math.PI / 180) * Math.Sin(yawBuffer * Math.PI / 180));
             newPos.y = (float)((pos.y / 1000) * Math.Sin(-pitchBuffer * Math.PI / 180));
 
+            if (pitchBounded) newPos.y += pos.z / 1000;
+            if (yawBounded) newPos.x -= pos.x / 1000;
+
             //HMD POSITION CALCULATION
             newPos = referential.transform.TransformPoint(newPos + new Vector3(0, 0, chestOffset));
+
+            //HAND COORDINATE REFERENTIAL POSITION UPDATE
+            float dist = ((hand.PalmPosition - hand.WristPosition) / 1000).Magnitude;
+            rightCenter.transform.localPosition = new Vector3(dist, 0, 0.015f);
+            leftCenter.transform.localPosition = new Vector3(-dist, 0, -0.01f);
 
             //VE HAND DISPLAYING (the SetPosition function was written specifically to force runtime hand model position update)
             Leap.Unity.RiggedHand.SetPosition(newPos);
@@ -389,7 +391,6 @@ public class PrototypeWearableVer : MonoBehaviour {
 
             //SENDING COMMAND TO GIMBALL (Please refer to SToRM32 controller documentation for command format)
             if (hand.IsRight || hand.IsLeft) { //Evaluation was performed with either single hand trackable, switching manually as mentioned in the paper can be easily implemented here
-                messageStatus = "Single hand detected";
 
                 string pitchCommand = FloatToHex(pitchBuffer).Substring(6, 2) + FloatToHex(pitchBuffer).Substring(4, 2) + FloatToHex(pitchBuffer).Substring(2, 2) + FloatToHex(pitchBuffer).Substring(0, 2);
                 string rollCommand = FloatToHex(rollBuffer).Substring(6, 2) + FloatToHex(rollBuffer).Substring(4, 2) + FloatToHex(rollBuffer).Substring(2, 2) + FloatToHex(rollBuffer).Substring(0, 2);
@@ -450,7 +451,14 @@ public class PrototypeWearableVer : MonoBehaviour {
                 newPos.z = (float)((mid.y / 1000) * Math.Cos(-pitchBuffer * Math.PI / 180) * Math.Cos(yawBuffer * Math.PI / 180));
                 newPos.x = (float)(-(mid.y / 1000) * Math.Cos(-pitchBuffer * Math.PI / 180) * Math.Sin(yawBuffer * Math.PI / 180));
                 newPos.y = (float)((mid.y / 1000) * Math.Sin(-pitchBuffer * Math.PI / 180));
-                GameObject.Find("Coordinate_Center").transform.position = newPos;
+
+                if (hand1.IsLeft) {
+                    rightCenter.transform.localPosition = new Vector3(((hand2.PalmPosition - hand2.WristPosition) / 1000).Magnitude, 0, 0.015f);
+                    leftCenter.transform.localPosition = new Vector3(-((hand1.PalmPosition - hand1.WristPosition) / 1000).Magnitude, 0, -0.01f);
+                } else {
+                    rightCenter.transform.localPosition = new Vector3(((hand1.PalmPosition - hand1.WristPosition) / 1000).Magnitude, 0, 0.015f);
+                    leftCenter.transform.localPosition = new Vector3(-((hand2.PalmPosition - hand2.WristPosition) / 1000).Magnitude, 0, -0.01f);
+                }
 
                 //COMMAND TO GIMBALL
                 string pitchCommand = FloatToHex(pitchBuffer).Substring(6, 2) + FloatToHex(pitchBuffer).Substring(4, 2) + FloatToHex(pitchBuffer).Substring(2, 2) + FloatToHex(pitchBuffer).Substring(0, 2);

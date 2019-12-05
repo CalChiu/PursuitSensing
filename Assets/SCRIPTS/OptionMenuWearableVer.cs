@@ -20,9 +20,8 @@ public class OptionMenuWearableVer : MonoBehaviour {
     private float speed = 1.0f;
     private bool menuOpen = false;
     private Rect WindowRect = new Rect((Screen.width / 2) - 130, Screen.height / 2 -250, 260, 500);
-    private static string[] optionsPort = new string[] { " COM1", " COM2", " COM3", " COM4", " COM5", " COM6", " COM7", " COM8" };
+    //private static string[] optionsPort = new string[] { " COM1", " COM2", " COM3", " COM4", " COM5", " COM6", " COM7", " COM8" };
     private static string[] optionsTracking = new string[] { " 1H", " 2H", " Auto" };
-    private int selectedPort = 3;
 
     private void Start() {
 
@@ -63,10 +62,10 @@ public class OptionMenuWearableVer : MonoBehaviour {
 
         GUILayout.Label("");
 
-        GUILayout.Box("Prototype Gimball Serial Port");
-        PrototypeWearableVer.serialPort = GUILayout.SelectionGrid(PrototypeWearableVer.serialPort, optionsPort, 4, GUI.skin.toggle);
+        //GUILayout.Box("Prototype Gimball Serial Port");
+        //PrototypeWearableVer.serialPort = GUILayout.SelectionGrid(PrototypeWearableVer.serialPort, optionsPort, 4, GUI.skin.toggle);
 
-        GUILayout.Label("");
+        //GUILayout.Label("");
 
         GUILayout.Box("Prototype Tracking Mode");
         PrototypeWearableVer.trackingMode = GUILayout.SelectionGrid(PrototypeWearableVer.trackingMode, optionsTracking, optionsTracking.Length, GUI.skin.toggle);

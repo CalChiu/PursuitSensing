@@ -18,9 +18,9 @@ authored by P. Chiu, K. Takashima, K. Fujita, Y. Kitamura
 
 # Architecture and Contents
 The repository contains the entire Unity3D project as used during the technical evaluation presented in the paper. The different experimental conditions can be reproduced by slightly changing parameters in the code (PrototypeWearableVer.cs) and (un)commenting some relevant parts, mainly:
-- shiftAmplitude line 34
-- angularSpeed line 343
-- commented lines 341-344 (Enabling focus shift in this version causes the 3D hand to render at the shifted target, which can be corrected by using the Leap Motion PalmPosition in the appropriate referential instead of newPos at line 385. As stated in the paper, the camera latency was measured by using its normal axis i.e. newPos)
+- shiftAmplitude line 33
+- angularSpeed line 336
+- commented lines 334-337 (Enabling focus shift in this version causes the 3D hand to render at the shifted target, which can be corrected by using the Leap Motion PalmPosition in the appropriate referential instead of newPos at line 370. As stated in the paper, the camera latency was measured by using its normal axis i.e. newPos)
 
 ## Scripts
 All core logic and relevant sources can be found under the **Assets/SCRIPTS/** folder as follows:

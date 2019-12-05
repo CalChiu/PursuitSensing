@@ -186,20 +186,15 @@ namespace Leap.Unity.Interaction {
       }
     }
 
-    private static Vector startPosition;
-    public static void SetPosition(Vector3 pos) {
-        startPosition = new Vector(pos.x, pos.y, pos.z);
-    }
-
+    [SerializeField] private GameObject forcedPosition = null;
     private void onProviderFixedFrame(Leap.Frame frame) {
       _hand = handAccessorFunc(frame);
 
       if (_hand != null) {
         _handData.CopyFrom(_hand);
         _unwarpedHandData.CopyFrom(_handData);
-                //_unwarpedHandData.Transform(startPosition, Quaternion.identity);
-        //_unwarpedHandData.SetTransform(startPosition, Quaterion.identity);
-        //leapHand.PalmPosition += (startPosition - leapHand.PalmPosition);
+
+        _unwarpedHandData.SetTransform(forcedPosition.transform.position, _unwarpedHandData.Rotation.ToQuaternion()); //WRITTEN BY CAL
 
         refreshPointDataFromHand();
         _lastCustomHandWasLeft = _unwarpedHandData.IsLeft;
